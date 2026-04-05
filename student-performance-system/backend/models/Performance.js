@@ -1,4 +1,4 @@
-const mongoose = require('../node_modules/mongoose');
+const mongoose = require('mongoose');
 
 const PerformanceSchema = new mongoose.Schema({
   studentId: { type: String, required: true, trim: true },
