@@ -7,6 +7,10 @@ app = Flask(__name__)
 reg = joblib.load("reg.pkl")
 clf = joblib.load("clf.pkl")
 
+@app.route("/health", methods=["GET"])
+def health():
+    return jsonify({"status": "ok"})
+
 @app.route("/predict", methods=["POST"])
 def predict():
     data = request.json
