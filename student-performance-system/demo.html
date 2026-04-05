@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Student Performance AI System - Demo</title>
+  <style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; color: #333; padding: 20px; }
+.container { max-width: 1400px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 40px; }
+.predictor, .leaderboard { background: white; padding: 30px; border-radius: 20px; box-shadow: 0 20px 40px rgba(0,0,0,0.1); }
+.predictor h2, .leaderboard h2 { color: #667eea; margin-bottom: 20px; font-size: 1.8rem; }
+.input-group { margin-bottom: 20px; }
+.input-group label { display: block; margin-bottom: 8px; font-weight: 600; color: #555; }
+.input-group input[type="range"] { width: 100%; height: 8px; border-radius: 5px; background: #ddd; outline: none; }
+.input-group input[type="range"]::-webkit-slider-thumb { appearance: none; width: 25px; height: 25px; border-radius: 50%; background: #667eea; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,0.2); }
+.input-group span { display: block; font-size: 1.2rem; font-weight: bold; color: #667eea; margin-top: 5px; }
+.predict-btn { width: 100%; padding: 15px; background: linear-gradient(45deg, #667eea, #764ba2); color: white; border: none; border-radius: 12px; font-size: 1.1rem; font-weight: 600; cursor: pointer; transition: transform 0.2s; }
+.predict-btn:hover { transform: translateY(-2px); }
+.result { margin-top: 25px; padding: 20px; background: linear-gradient(135deg, #f0f8ff, #e6f3ff); border-radius: 15px; text-align: center; border-left: 5px solid #667eea; }
+.score { font-size: 2rem; font-weight: bold; color: #333; margin-bottom: 10px; }
+.status { font-size: 1.5rem; padding: 10px 20px; border-radius: 25px; font-weight: bold; margin-top: 10px; }
+.status.pass { background: #d4edda; color: #155724; }
+.status.fail { background: #f8d7da; color: #721c24; }
+.refresh-btn { background: #28a745; color: white; border: none; padding: 8px 16px; border-radius: 20px; cursor: pointer; margin-bottom: 20px; font-size: 0.9rem; }
+.table-container { max-height: 400px; overflow-y: auto; }
+table { width: 100%; border-collapse: collapse; background: white; }
+th, td { padding: 12px; text-align: left; border-bottom: 1px solid #eee; }
+th { background: #f8f9fa; font-weight: 600; color: #495057; position: sticky; top: 0; }
+tr:hover { background: #f8f9fa; }
+h1 { text-align: center; color: white; margin-bottom: 40px; font-size: 2.5rem; text-shadow: 2px 2px 4px rgba(0,0,0,0.3); }
+  </style>
+</head>
+<body>
+  <h1>🎓 Student Performance AI System</h1>
+  <div class="container">
+    <div class="predictor">
+      <h2>🔮 AI Prediction</h2>
+      <div class="input-group">
+        <label>Exam Score (40-100)</label>
+        <input type="range" id="examScore" min="40" max="100" value="60">
+        <span id="examValue">60</span>
+      </div>
+      <div class="input-group">
+        <label>Assignment Score (40-100)</label>
+        <input type="range" id="assignScore" min="40" max="100" value="70">
+        <span id="assignValue">70</span>
+      </div>
+      <div class="input-group">
+        <label>Seminar Score (30-100)</label>
+        <input type="range" id="seminarScore" min="30" max="100" value="65">
+        <span id="seminarValue">65</span>
+      </div>
+      <div class="input-group">
+        <label>Project Score (40-100)</label>
+        <input type="range" id="projectScore" min="40" max="100" value="75">
+        <span id="projectValue">75</span>
+      </div>
+      <div class="input-group">
+        <label>Sports Score (0-50)</label>
+        <input type="range" id="sportsScore" min="0" max="50" value="20">
+        <span id="sportsValue">20</span>
+      </div>
+      <div class="input-group">
+        <label>Hackathon Score (0-50)</label>
+        <input type="range" id="hackScore" min="0" max="50" value="15">
+        <span id="hackValue">15</span>
+      </div>
+      <div class="input-group">
+        <label>Attendance % (50-100)</label>
+        <input type="range" id="attendance" min="50" max="100" value="85">
+        <span id="attendValue">85</span>
+      </div>
+      <button class="predict-btn" onclick="predict()">🚀 Predict Performance</button>
+      <div id="result" style="display:none;" class="result"></div>
+    </div>
+    <div class="leaderboard">
+      <h2>🏆 Top Performers</h2>
+      <button class="refresh-btn" onclick="loadLeaderboard()">🔄 Refresh</button>
+      <div id="leaderboard" class="table-container">
+        <p>Loading...</p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const sliders = document.querySelectorAll('input[type="range"]');
+    sliders.forEach(slider => {
+      const valueSpan = document.getElementById(slider.id + 'Value');
+      slider.addEventListener('input', () => valueSpan.textContent = slider.value);
+    });
+
+    async function predict() {
+      const formData = {
+        examScore: parseInt(document.getElementById('examScore').value),
+        assignmentScore: parseInt(document.getElementById('assignScore').value),
+        seminarScore: parseInt(document.getElementById('seminarScore').value),
+        projectScore: parseInt(document.getElementById('projectScore').value),
+        sportsScore: parseInt(document.getElementById('sportsScore').value),
+        hackathonScore: parseInt(document.getElementById('hackScore').value),
+        attendance: parseInt(document.getElementById('attendance').value)
+      };
+
+      try {
+        const res = await fetch('http://localhost:5000/predict', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify(formData)
+        });
+        const result = await res.json();
+        const resultDiv = document.getElementById('result');
+        resultDiv.innerHTML = `
+          <h3>📊 Predicted Results:</h3>
+          <div class="score">Score: ${result.predictedScore?.toFixed(1)} / 100</div>
+          <div class="${result.pass ? 'status pass' : 'status fail'}">
+            ${result.pass ? '✅ PASS' : '❌ FAIL'}
+          </div>
+        `;
+        resultDiv.style.display = 'block';
+      } catch (error) {
+        alert('Prediction service unavailable');
+      }
+    }
+
+    async function loadLeaderboard() {
+      try {
+        const res = await fetch('http://localhost:5000/leaderboard');
+        const data = await res.json();
+        const table = document.getElementById('leaderboard');
+        if (data.length === 0) {
+          table.innerHTML = '<p>No data available. Start adding performance records!</p>';
+        } else {
+          table.innerHTML = `
+            <table>
+              <thead>
+                <tr>
+                  <th>Rank</th>
+                  <th>Total Score</th>
+                  <th>Exam</th>
+                  <th>Project</th>
+                  <th>Attendance</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${data.slice(0, 10).map((student, index) => `
+                  <tr>
+                    <td>${index + 1} 🥇</td>
+                    <td>${student.totalScore?.toFixed(1)}</td>
+                    <td>${student.examScore}</td>
+                    <td>${student.projectScore}</td>
+                    <td>${student.attendance}%</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          `;
+        }
+      } catch (error) {
+        document.getElementById('leaderboard').innerHTML = '<p>Error loading leaderboard</p>';
+      }
+    }
+
+    loadLeaderboard();
+  </script>
+</body>
+</html>
