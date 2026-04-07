@@ -7,21 +7,17 @@ param(
     [string]$Action = "start"
 )
 
-# Set error action preference
-$ErrorActionPreference = "Stop"
-
 # Colors for output
 $RED = "Red"
 $GREEN = "Green"
 $YELLOW = "Yellow"
 $BLUE = "Cyan"
-$RESET = "White"
 
 # Function to write colored output
 function Write-ColoredOutput {
     param(
         [string]$Message,
-        [string]$Color = $RESET
+        [string]$Color = "White"
     )
     Write-Host $Message -ForegroundColor $Color
 }
@@ -32,24 +28,12 @@ function Test-PortInUse {
         [int]$Port,
         [string]$Name
     )
-
-    try {
-        $connections = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue
-        if ($connections) {
-            Write-ColoredOutput "❌ Port $Port ($Name) is already in use" $RED
-            return $true
-        }
+    
+    $netstat = netstat -an | Select-String ":$Port\s" | Select-String "LISTENING"
+    if ($netstat) {
+        Write-ColoredOutput "[ERROR] Port $Port ($Name) is already in use" $RED
+        return $true
     }
-    catch {
-        # Get-NetTCPConnection might not be available on older Windows versions
-        # Fall back to netstat
-        $netstat = netstat -an | Select-String ":$Port\s" | Select-String "LISTENING"
-        if ($netstat) {
-            Write-ColoredOutput "❌ Port $Port ($Name) is already in use" $RED
-            return $true
-        }
-    }
-
     return $false
 }
 
@@ -61,80 +45,54 @@ function Start-ServiceProcess {
         [string]$Name
     )
 
-    Write-ColoredOutput "📁 Starting $Name in $Directory..." $BLUE
-
-    Push-Location $Directory
-
+    Write-ColoredOutput "[*] Starting $Name in $Directory..." $BLUE
+    
     try {
-        switch ($Command) {
-            "npm start" {
-                Start-Process -FilePath "npm" -ArgumentList "start" -NoNewWindow -WorkingDirectory $Directory
-            }
-            "python app.py" {
-                Start-Process -FilePath "python" -ArgumentList "app.py" -NoNewWindow -WorkingDirectory $Directory
-            }
-            default {
-                # For other commands, use PowerShell to execute
-                Start-Process -FilePath "powershell" -ArgumentList "-Command $Command" -NoNewWindow -WorkingDirectory $Directory
-            }
+        if ($Command -eq "npm start") {
+            Start-Process -FilePath "cmd.exe" -ArgumentList "/c npm start" -NoNewWindow -WorkingDirectory $Directory
         }
-
-        # Store process info for potential cleanup (simplified approach)
-        $processInfo = @{
-            Name = $Name
-            Directory = $Directory
-            Command = $Command
-            StartTime = Get-Date
+        elseif ($Command -eq "python app.py") {
+            Start-Process -FilePath "cmd.exe" -ArgumentList "/c uv run app.py" -NoNewWindow -WorkingDirectory $Directory
         }
-
-        # Save process info to a JSON file for tracking
-        $processInfo | ConvertTo-Json | Out-File -FilePath "$PSScriptRoot\.$Name.process.json" -Encoding UTF8
-
-        Write-ColoredOutput "✅ $Name started" $GREEN
+        else {
+            Start-Process -FilePath "powershell" -ArgumentList "-Command $Command" -NoNewWindow -WorkingDirectory $Directory
+        }
+        
+        Write-ColoredOutput "[OK] $Name started" $GREEN
     }
     catch {
-        Write-ColoredOutput "❌ Failed to start $Name`: $($_.Exception.Message)" $RED
+        Write-ColoredOutput "[ERROR] Failed to start $Name : $_" $RED
         throw
-    }
-    finally {
-        Pop-Location
     }
 }
 
 # Function to stop services
 function Stop-Services {
-    Write-ColoredOutput "🛑 Stopping all services..." $YELLOW
-
-    # Kill processes by name patterns
-    $processesToKill = @(
-        "node",
-        "python",
-        "npm"
-    )
-
-    foreach ($processName in $processesToKill) {
-        try {
-            $processes = Get-Process -Name $processName -ErrorAction SilentlyContinue
-            if ($processes) {
-                foreach ($proc in $processes) {
-                    # Only kill processes that might be related to our services
-                    # This is a simplified approach - in production you'd want better process tracking
-                    if ($proc.StartTime -gt (Get-Date).AddMinutes(-30)) {
+    Write-ColoredOutput "[STOP] Stopping all services..." $YELLOW
+    
+    $processNames = @("node", "python", "npm")
+    
+    foreach ($processName in $processNames) {
+        $processes = Get-Process -Name $processName -ErrorAction SilentlyContinue
+        if ($processes) {
+            foreach ($proc in $processes) {
+                if ($proc.StartTime -gt (Get-Date).AddMinutes(-30)) {
+                    try {
                         Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-                        Write-ColoredOutput "✅ Stopped $($proc.Name) (PID: $($proc.Id))" $GREEN
+                        Write-ColoredOutput "[OK] Stopped $($proc.Name) (PID: $($proc.Id))" $GREEN
+                    }
+                    catch {
+                        # Ignore errors
                     }
                 }
             }
         }
-        catch {
-            # Ignore errors when stopping processes
-        }
     }
-
+    
     # Clean up process tracking files
-    Get-ChildItem -Path $PSScriptRoot -Filter ".*.process.json" | Remove-Item -ErrorAction SilentlyContinue
-
-    Write-ColoredOutput "✅ Services stopped" $GREEN
+    Get-ChildItem -Path $PSScriptRoot -Filter ".*.process.json" -ErrorAction SilentlyContinue | Remove-Item -ErrorAction SilentlyContinue
+    
+    Write-ColoredOutput "[OK] Services stopped" $GREEN
 }
 
 # Function to show usage
@@ -154,80 +112,74 @@ function Show-Usage {
     exit 1
 }
 
-# Main logic
-switch ($Action) {
-    "start" {
-        Write-ColoredOutput "🚀 Starting Student Performance System..." $BLUE
-
-        # Check if required tools are available
-        $requiredCommands = @("node", "npm", "python")
-        foreach ($cmd in $requiredCommands) {
-            if (!(Get-Command $cmd -ErrorAction SilentlyContinue)) {
-                Write-ColoredOutput "❌ $cmd is not installed or not in PATH" $RED
-                exit 1
-            }
-        }
-
-        # Check if ports are available
-        $portsToCheck = @(
-            @{Port = 3000; Name = "Frontend (React)"},
-            @{Port = 5000; Name = "Backend (Node.js)"},
-            @{Port = 8000; Name = "AI Service (Flask)"}
-        )
-
-        foreach ($portInfo in $portsToCheck) {
-            if (Test-PortInUse -Port $portInfo.Port -Name $portInfo.Name) {
-                exit 1
-            }
-        }
-
-        Write-ColoredOutput "⚠️  Make sure MongoDB is running on port 27017" $YELLOW
-        Write-ColoredOutput "   For Docker setup: MongoDB runs inside the backend container" $YELLOW
-        Write-ColoredOutput "   For local development: mongod" $YELLOW
-        Write-Host ""
-
-        # Start services in order
-        Start-ServiceProcess -Directory "frontend" -Command "npm start" -Name "Frontend"
-        Start-Sleep -Seconds 2
-
-        Start-ServiceProcess -Directory "backend" -Command "npm start" -Name "Backend"
-        Start-Sleep -Seconds 2
-
-        Start-ServiceProcess -Directory "ai-service" -Command "python app.py" -Name "AI Service"
-
-        Write-Host ""
-        Write-ColoredOutput "🎉 All services started!" $GREEN
-        Write-ColoredOutput "📱 Frontend: http://localhost:3000" $BLUE
-        Write-ColoredOutput "🔧 Backend: http://localhost:5000" $BLUE
-        Write-ColoredOutput "🤖 AI Service: http://localhost:8000" $BLUE
-        Write-Host ""
-        Write-ColoredOutput "Press Ctrl+C to stop all services" $YELLOW
-
-        # Keep the script running and handle Ctrl+C
-        try {
-            while ($true) {
-                Start-Sleep -Seconds 1
-            }
-        }
-        catch {
-            # Handle Ctrl+C
-            Write-Host ""
-            Stop-Services
+# Main logic - Start action
+if ($Action -eq "start") {
+    Write-ColoredOutput "[START] Starting Student Performance System..." $BLUE
+    
+    # Check if required tools are available
+    $requiredCommands = @("node", "npm", "python")
+    foreach ($cmd in $requiredCommands) {
+        if (!(Get-Command $cmd -ErrorAction SilentlyContinue)) {
+            Write-ColoredOutput "[ERROR] $cmd is not installed or not in PATH" $RED
+            exit 1
         }
     }
-
-    "stop" {
+    
+    # Check if ports are available
+    $portsToCheck = @(
+        @{Port = 3000; Name = "Frontend (React)"},
+        @{Port = 5000; Name = "Backend (Node.js)"},
+        @{Port = 8000; Name = "AI Service (Flask)"}
+    )
+    
+    foreach ($portInfo in $portsToCheck) {
+        if (Test-PortInUse -Port $portInfo.Port -Name $portInfo.Name) {
+            exit 1
+        }
+    }
+    
+    Write-ColoredOutput "[WARNING] Make sure MongoDB is running on port 27017" $YELLOW
+    Write-ColoredOutput "           For Docker setup: MongoDB runs inside backend container" $YELLOW
+    Write-ColoredOutput "           For local development: mongod" $YELLOW
+    Write-Host ""
+    
+    # Start services in order
+    Start-ServiceProcess -Directory "frontend" -Command "npm start" -Name "Frontend"
+    Start-Sleep -Seconds 2
+    
+    Start-ServiceProcess -Directory "backend" -Command "npm start" -Name "Backend"
+    Start-Sleep -Seconds 2
+    
+    Start-ServiceProcess -Directory "ai-service" -Command "python app.py" -Name "AI Service"
+    
+    Write-Host ""
+    Write-ColoredOutput "[SUCCESS] All services started!" $GREEN
+    Write-ColoredOutput "[UI] Frontend: http://localhost:3000" $BLUE
+    Write-ColoredOutput "[API] Backend: http://localhost:5000" $BLUE
+    Write-ColoredOutput "[ML] AI Service: http://localhost:8000" $BLUE
+    Write-Host ""
+    Write-ColoredOutput "[INFO] Press Ctrl+C to stop all services" $YELLOW
+    
+    # Keep script running
+    try {
+        while ($true) {
+            Start-Sleep -Seconds 1
+        }
+    }
+    finally {
+        Write-Host ""
         Stop-Services
     }
-
-    "restart" {
-        Write-ColoredOutput "🔄 Restarting services..." $BLUE
-        Stop-Services
-        Start-Sleep -Seconds 2
-        & $MyInvocation.MyCommand.Path -Action start
-    }
-
-    default {
-        Show-Usage
-    }
+}
+elseif ($Action -eq "stop") {
+    Stop-Services
+}
+elseif ($Action -eq "restart") {
+    Write-ColoredOutput "[RESTART] Restarting services..." $BLUE
+    Stop-Services
+    Start-Sleep -Seconds 2
+    & $MyInvocation.MyCommand.Path -Action start
+}
+else {
+    Show-Usage
 }
